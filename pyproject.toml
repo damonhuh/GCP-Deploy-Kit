@@ -21,11 +21,26 @@ dependencies = [
   "google-cloud-sqlcommenter>=2.0.0; python_version<'3.13'",  # optional, safe upper bound
 ]
 
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+]
+
 [project.scripts]
-deploy-main = "deploy_kit.cli:main"
+deploy-gcp = "deploy_kit.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["deploy_kit*"]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"deploy_kit.examples" = [
+  "env.infra.example",
+  "env.secrets.example",
+  "env.services.example",
+]
 
 

@@ -4,22 +4,38 @@ import os
 from dataclasses import dataclass
 from typing import Optional, List
 
-from dotenv import load_dotenv
+from dotenv import load_dotenv, dotenv_values
 
 
-ENV_FILES_DEFAULT_ORDER = [".env", ".env.infra", ".env.secrets"]
+ENV_FILES_DEFAULT_ORDER = [".env", ".env.infra", ".env.services", ".env.secrets"]
+
+# .env.services 에서 읽어온 "서비스용" 환경변수들을 보관하는 전역 변수
+_SERVICE_ENV: dict[str, str] = {}
 
 
-def load_env_files(base_dir: str = ".",
-                   files: Optional[List[str]] = None) -> None:
+def load_env_files(
+    base_dir: str = ".",
+    files: Optional[List[str]] = None,
+) -> None:
     """
     주어진 디렉토리에서 .env 계열 파일을 순서대로 로드한다.
     후순위 파일이 같은 키를 덮어쓴다.
+
+    .env.services 는 Cloud Run 서비스 내부에서 사용할 일반적인 앱 환경변수용 파일이고,
+    인프라/토글 설정(GCP_PROJECT_ID, ENABLE_*, DEPLOY_* 등)은
+    .env.infra / .env.secrets 에 두는 것을 권장한다.
     """
+    global _SERVICE_ENV
+
     order = files or ENV_FILES_DEFAULT_ORDER
     for name in order:
         path = os.path.join(base_dir, name)
         if os.path.exists(path):
+            # .env.services 는 Cloud Run 서비스용 env 로도 따로 보관
+            if name == ".env.services":
+                raw = dotenv_values(path)
+                # 값이 None 인 항목은 제외
+                _SERVICE_ENV = {k: v for k, v in raw.items() if v is not None}
             load_dotenv(path, override=True)
 
 
@@ -38,8 +54,23 @@ class DeployConfig:
     deploy_sa_email: str
     artifact_registry_repo: str
 
+    # Cloud Run 서비스 이름
+    backend_service_name: str
+
+    # 이미지 빌드 전략 (local_docker | cloud_build)
+    backend_build_mode: str = "local_docker"
+
+    # Cloud Run 공개 여부
+    backend_allow_unauthenticated: bool = True
+
     backend_image_name: Optional[str] = None
     frontend_image_name: Optional[str] = None
+
+    # 소스 코드 경로
+    # - BACKEND_SOURCE_DIR: 백엔드(및 ETL) Docker 빌드 컨텍스트 디렉토리
+    # - FRONTEND_SOURCE_DIR: 프론트엔드 빌드 디렉토리 (선택)
+    backend_source_dir: str = "."
+    frontend_source_dir: Optional[str] = None
 
     # 토글
     enable_bigquery: bool = False
@@ -70,10 +101,14 @@ class DeployConfig:
 
     secret_prefix: str = ""
 
+    # Cloud Run 서비스 내부 환경변수 (key/value 쌍)
+    backend_service_env: dict[str, str] | None = None
+
     @classmethod
     def from_env(cls) -> "DeployConfig":
         # 필수값
         missing: List[str] = []
+
         def req(name: str) -> str:
             val = os.getenv(name)
             if not val:
@@ -85,6 +120,11 @@ class DeployConfig:
             gcp_region=req("GCP_REGION"),
             deploy_sa_email=req("DEPLOY_SERVICE_ACCOUNT_EMAIL"),
             artifact_registry_repo=req("ARTIFACT_REGISTRY_REPO"),
+            backend_service_name=req("BACKEND_SERVICE_NAME"),
+            backend_build_mode=os.getenv("BACKEND_BUILD_MODE", "local_docker"),
+            backend_allow_unauthenticated=_get_bool(
+                "BACKEND_ALLOW_UNAUTHENTICATED", True
+            ),
             backend_image_name=os.getenv("BACKEND_IMAGE_NAME"),
             frontend_image_name=os.getenv("FRONTEND_IMAGE_NAME"),
             enable_bigquery=_get_bool("ENABLE_BIGQUERY", False),
@@ -106,6 +146,10 @@ class DeployConfig:
             firebase_project_id=os.getenv("FIREBASE_PROJECT_ID"),
             firebase_hosting_site=os.getenv("FIREBASE_HOSTING_SITE"),
             secret_prefix=os.getenv("SECRET_PREFIX", ""),
+            backend_source_dir=os.getenv("BACKEND_SOURCE_DIR", "."),
+            frontend_source_dir=os.getenv("FRONTEND_SOURCE_DIR"),
+            # .env.services 에서 읽어온 값들만 Cloud Run 서비스 env 로 전달
+            backend_service_env=dict(_SERVICE_ENV),
         )
 
         if missing:
@@ -113,9 +157,54 @@ class DeployConfig:
                 "필수 환경변수가 누락되었습니다: " + ", ".join(sorted(set(missing)))
             )
 
-        # BigQuery 기본값 보정
-        if cfg.enable_bigquery and not cfg.bigquery_project_id:
-            cfg.bigquery_project_id = cfg.gcp_project_id
+        # 기능 토글별 추가 검증
+        errors: List[str] = []
+
+        # BigQuery 기본값/검증
+        if cfg.enable_bigquery:
+            if not cfg.bigquery_project_id:
+                cfg.bigquery_project_id = cfg.gcp_project_id
+            if not cfg.bigquery_dataset_id:
+                errors.append(
+                    "ENABLE_BIGQUERY=true 이면 BIGQUERY_DATASET_ID 환경변수가 필요합니다."
+                )
+
+        # Cloud SQL
+        if cfg.enable_cloud_sql:
+            if not cfg.cloud_sql_instance_name:
+                errors.append(
+                    "ENABLE_CLOUD_SQL=true 이면 CLOUD_SQL_INSTANCE_NAME 환경변수가 필요합니다."
+                )
+            if not cfg.cloud_sql_db_name:
+                errors.append(
+                    "ENABLE_CLOUD_SQL=true 이면 CLOUD_SQL_DB_NAME 환경변수가 필요합니다."
+                )
+            if not cfg.cloud_sql_user:
+                errors.append(
+                    "ENABLE_CLOUD_SQL=true 이면 CLOUD_SQL_USER 환경변수가 필요합니다."
+                )
+
+        # GCS
+        if cfg.enable_gcs and not cfg.gcs_bucket_name:
+            errors.append(
+                "ENABLE_GCS=true 이면 GCS_BUCKET_NAME 환경변수가 필요합니다."
+            )
+
+        # Firebase Hosting
+        if cfg.enable_firebase:
+            if not cfg.firebase_project_id:
+                errors.append(
+                    "ENABLE_FIREBASE=true 이면 FIREBASE_PROJECT_ID 환경변수가 필요합니다."
+                )
+            if not cfg.firebase_hosting_site:
+                errors.append(
+                    "ENABLE_FIREBASE=true 이면 FIREBASE_HOSTING_SITE 환경변수가 필요합니다."
+                )
+
+        if errors:
+            raise ValueError(
+                "환경변수 설정이 잘못되었습니다:\n- " + "\n- ".join(errors)
+            )
 
         return cfg
 

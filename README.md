@@ -3,34 +3,65 @@
 GCP Cloud Run / Cloud Run Job / Firebase Hosting / BigQuery / Cloud SQL / GCS / Secret Manager 를
 환경변수 기반으로 한 번에 배포하기 위한 Python CLI 패키지입니다.
 
-## 설치 (로컬 개발)
+## 설치
+
+### 1) GitHub 레포에서 설치 (권장)
+
+개인 GitHub 레포가 `https://github.com/yourname/GCP-Deploy-Kit` 라고 가정하면:
+
+```bash
+pip install "git+https://github.com/yourname/GCP-Deploy-Kit.git@main#egg=deploy-kit"
+```
+
+안정된 태그(예: `v0.1.0`)를 기준으로 설치하는 것을 추천합니다.
+
+```bash
+pip install "git+https://github.com/yourname/GCP-Deploy-Kit.git@v0.1.0#egg=deploy-kit"
+```
+
+### 2) 로컬 editable 설치 (개발용)
 
 프로젝트 루트에서:
 
 ```bash
-cd deploy-kit
-pip install -e .
+pip install -e ".[dev]"
 ```
 
-## 기본 사용법
+테스트 실행:
 
-1. 작업 디렉토리(예: 서비스 루트)에 `.env.infra`, `.env.secrets` 파일을 준비합니다.
+```bash
+pytest
+```
+
+## Quickstart (Cloud Run 백엔드만)
+
+1. 작업 디렉토리(예: 서비스 루트)에 `.env.infra`, `.env.secrets`, `.env.services` 파일을 준비합니다.
 2. 다음 명령으로 현재 설정을 점검합니다.
 
 ```bash
-deploy-main -C /path/to/service plan
+deploy-gcp plan
+deploy-gcp plan -a  # infra/secrets/services 에서 설정한 모든 키/값까지 보고 싶을 때
 ```
 
 3. 실제 배포를 수행합니다.
 
 ```bash
-deploy-main -C /path/to/service apply
+deploy-gcp deploy
 ```
 
-섹션별로 제한해서 배포하고 싶다면:
+## 배포 전 사전 체크
+
+아래 명령으로 프로젝트/필수 API/GCS 버킷/BigQuery 데이터셋/Cloud SQL/Secret Manager 상태를
+한 번에 점검할 수 있습니다. (실제 리소스 생성/변경은 하지 않습니다.)
 
 ```bash
-deploy-main -C /path/to/service apply --only backend,etl
+deploy-gcp check
+```
+
+섹션별로 제한해서 배포하고 싶다면 (고급 옵션):
+
+```bash
+deploy-gcp deploy --only backend,etl
 ```
 
 가능한 섹션 이름:
@@ -49,10 +80,21 @@ deploy-main -C /path/to/service apply --only backend,etl
 서비스 루트 디렉토리에서:
 
 ```bash
-deploy-main -C . init
+deploy-gcp init
 ```
 
-명령을 실행하면 `env.infra.example`, `env.secrets.example` 템플릿이 생성됩니다.
+명령을 실행하면 `env.infra.example`, `env.secrets.example`, `env.services.example`
+템플릿이 생성됩니다.
+
+### env 파일 역할
+
+- `.env.infra` : GCP 프로젝트/리전, Cloud Run 서비스 이름, ENABLE_*/DEPLOY_* 토글 등
+- `.env.secrets` : Secret Manager 로 올라갈 민감한 값(DB 비밀번호, API 키 등)
+- `.env.services` : Cloud Run 서비스 내부에서 사용할 일반적인 앱 환경변수
+
+인프라/배포 토글(`GCP_PROJECT_ID`, `ENABLE_*`, `DEPLOY_*` 등)은
+`.env.infra` / `.env.secrets` 에 두고,
+`.env.services` 에는 애플리케이션 런타임 설정만 두는 것을 권장합니다.
 
 ## Read_aloud_POC 에서의 사용 시나리오 (예시)
 
@@ -68,8 +110,8 @@ deploy-main -C . init
 2. 다음 명령 실행:
 
 ```bash
-deploy-main -C . plan
-deploy-main -C . apply --only backend,secrets,frontend,firebase
+deploy-gcp plan
+deploy-gcp deploy
 ```
 
 ### 2) ETL Cloud Run Job 만 배포
@@ -78,8 +120,5 @@ deploy-main -C . apply --only backend,secrets,frontend,firebase
 DEPLOY_BACKEND=false
 DEPLOY_ETL_JOB=true
 
-deploy-main -C . apply --only etl
+deploy-gcp deploy --only etl
 ```
-
-
-

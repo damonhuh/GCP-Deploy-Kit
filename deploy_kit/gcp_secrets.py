@@ -11,6 +11,9 @@ from __future__ import annotations
 import os
 from typing import Dict, List
 
+from google.api_core.exceptions import NotFound
+from google.cloud import secretmanager
+
 from .config import DeployConfig
 from .logging_utils import get_logger
 
@@ -55,13 +58,66 @@ def ensure_secrets(cfg: DeployConfig, base_dir: str = ".") -> List[str]:
         logger.info("업로드할 secret 이 없습니다.")
         return []
 
+    client = secretmanager.SecretManagerServiceClient()
+    project_id = cfg.gcp_project_id
+    parent = f"projects/{project_id}"
+
     created_or_updated: List[str] = []
     for key, value in local_secrets.items():
-        secret_name = f"{cfg.secret_prefix}{key}" if cfg.secret_prefix else key
-        logger.info("Secret 생성/업데이트 (가상): %s", secret_name)
-        # TODO: google-cloud-secret-manager 클라이언트 사용하여 secret create / add version
+        secret_id = f"{cfg.secret_prefix}{key}" if cfg.secret_prefix else key
+        secret_name = f"{parent}/secrets/{secret_id}"
+
+        # Secret 존재 여부 확인 후 없으면 생성
+        try:
+            client.get_secret(name=secret_name)
+            logger.info("기존 Secret 에 새 버전을 추가합니다: %s", secret_name)
+        except NotFound:
+            logger.info("Secret 이 없어 새로 생성합니다: %s", secret_name)
+            client.create_secret(
+                parent=parent,
+                secret_id=secret_id,
+                secret={
+                    "replication": {"automatic": {}},
+                },
+            )
+
+        # 새 버전 추가
+        client.add_secret_version(
+            parent=secret_name,
+            payload={"data": value.encode("utf-8")},
+        )
         created_or_updated.append(secret_name)
 
     return created_or_updated
+
+
+def check_secrets(cfg: DeployConfig, base_dir: str = ".") -> List[str]:
+    """
+    .env.secrets 에 정의된 Secret 들이 Secret Manager 에 존재하는지 확인한다.
+    (없어도 생성하지 않고, 상태만 리턴)
+    """
+    if not (cfg.enable_secret_manager and cfg.configure_secrets):
+        return ["Secrets: Secret Manager 비활성화 (ENABLE_SECRET_MANAGER/CONFIGURE_SECRETS)"]
+
+    local_secrets = load_local_secrets_file(base_dir)
+    if not local_secrets:
+        return ["Secrets: .env.secrets 에 정의된 값이 없습니다."]
+
+    client = secretmanager.SecretManagerServiceClient()
+    project_id = cfg.gcp_project_id
+    parent = f"projects/{project_id}"
+
+    results: List[str] = []
+    for key in sorted(local_secrets.keys()):
+        secret_id = f"{cfg.secret_prefix}{key}" if cfg.secret_prefix else key
+        secret_name = f"{parent}/secrets/{secret_id}"
+
+        try:
+            client.get_secret(name=secret_name)
+            results.append(f"Secrets: 존재함 ({secret_name})")
+        except NotFound:
+            results.append(f"Secrets: 없음 (생성이 필요함) ({secret_name})")
+
+    return results
 
 
