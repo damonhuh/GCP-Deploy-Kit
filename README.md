@@ -87,30 +87,3 @@ deploy-gcp init
 인프라/배포 토글(`GCP_PROJECT_ID`, `ENABLE_*`, `DEPLOY_*` 등)은
 `.env.infra` / `.env.secrets` 에 두고,
 `.env.services` 에는 애플리케이션 런타임 설정만 두는 것을 권장합니다.
-
-## Read_aloud_POC 에서의 사용 시나리오 (예시)
-
-루트 기준:
-
-- 백엔드 소스: `app/Backend`
-- 프론트엔드 소스: `app/Frontend`
-- ETL Job: `ETL`
-
-### 1) 백엔드 + 프론트 + Secret Manager 만 배포
-
-1. 루트에 `.env.infra`, `.env.secrets` 작성
-2. 다음 명령 실행:
-
-```bash
-deploy-gcp plan
-deploy-gcp deploy
-```
-
-### 2) ETL Cloud Run Job 만 배포
-
-```bash
-DEPLOY_BACKEND=false
-DEPLOY_ETL_JOB=true
-
-deploy-gcp deploy --only etl
-```
