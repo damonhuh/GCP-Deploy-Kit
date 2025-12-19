@@ -7,16 +7,8 @@ GCP Cloud Run / Cloud Run Job / Firebase Hosting / BigQuery / Cloud SQL / GCS / 
 
 ### 1) GitHub 레포에서 설치 (권장)
 
-개인 GitHub 레포가 `https://github.com/yourname/GCP-Deploy-Kit` 라고 가정하면:
-
 ```bash
-pip install "git+https://github.com/yourname/GCP-Deploy-Kit.git@main#egg=deploy-kit"
-```
-
-안정된 태그(예: `v0.1.0`)를 기준으로 설치하는 것을 추천합니다.
-
-```bash
-pip install "git+https://github.com/yourname/GCP-Deploy-Kit.git@v0.1.0#egg=deploy-kit"
+pip install "git+https://github.com/damonhuh/GCP-Deploy-Kit.git@v1.0.0#egg=deploy-kit"
 ```
 
 ### 2) 로컬 editable 설치 (개발용)
