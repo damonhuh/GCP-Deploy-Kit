@@ -143,13 +143,15 @@ def deploy(ctx: click.Context, only: str) -> None:
 @click.pass_context
 def init(ctx: click.Context) -> None:
     """
-    현재 디렉토리에 env 템플릿(.env.infra.example, .env.secrets.example, .env.services.example)을 복사하는 초기화.
+    현재 디렉토리에 env 템플릿(.env.infra.example, .env.secrets.example, .env.services.example)을 복사하고,
+    .env.infra / .env.secrets / .env.services 가 git 에서 무시되도록 .gitignore 를 생성/갱신합니다.
     """
     import os
     from importlib import resources
 
     base_dir: str = ctx.obj["chdir"]
 
+    # 1) env 템플릿 파일 복사
     for name in ("env.infra.example", "env.secrets.example", "env.services.example"):
         target = os.path.join(base_dir, name)
         if os.path.exists(target):
@@ -163,6 +165,47 @@ def init(ctx: click.Context) -> None:
             click.echo(f"{name} 템플릿을 생성했습니다.")
         except FileNotFoundError:
             click.echo(f"템플릿 {name} 을(를) 패키지에서 찾을 수 없습니다.", err=True)
+
+    # 2) .gitignore 에 실제 env 파일(.env.infra/.env.secrets/.env.services)을 무시하도록 규칙 추가/유지
+    gitignore_path = os.path.join(base_dir, ".gitignore")
+    patterns = [".env.infra", ".env.secrets", ".env.services"]
+
+    existing_content = ""
+    if os.path.exists(gitignore_path):
+        try:
+            with open(gitignore_path, "r", encoding="utf-8") as f:
+                existing_content = f.read()
+        except OSError:
+            # .gitignore 를 읽을 수 없으면 조용히 건너뛰되, init 자체는 성공 처리
+            return
+
+    lines = existing_content.splitlines() if existing_content else []
+    missing = [p for p in patterns if p not in lines]
+
+    if not existing_content or missing:
+        # 중복 없이 패턴을 추가하기 위해 기존 내용 뒤에 블록을 덧붙인다.
+        block_lines: list[str] = []
+        if existing_content and not existing_content.endswith("\n"):
+            existing_content = existing_content + "\n"
+        # 섹션 주석
+        block_lines.append("")
+        block_lines.append("# deploy-gcp: ignore local env files")
+        # 이미 있는 패턴은 제외하고, 없는 패턴만 추가
+        for p in patterns:
+            if p not in lines:
+                block_lines.append(p)
+
+        new_content = existing_content + "\n".join(block_lines) + "\n"
+
+        try:
+            with open(gitignore_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+            click.echo(
+                "[deploy-gcp] .gitignore 에 .env.infra/.env.secrets/.env.services 무시 규칙을 추가/유지했습니다."
+            )
+        except OSError:
+            # .gitignore 를 쓸 수 없더라도 init 자체는 성공으로 간주
+            return
 
 
 @main.command()

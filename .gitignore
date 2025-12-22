@@ -11,9 +11,12 @@ build/
 dist/
 *.egg-info/
 
-# 환경 변수 / 로컬 설정
+# 환경 변수 / 로컬 설정 (실제 서비스용 env 파일은 절대 git 에 올리지 마세요)
 .env
 .env.*
+.env.infra
+.env.secrets
+.env.services
 !.env.infra.example
 !.env.secrets.example
 !.env.services.example
