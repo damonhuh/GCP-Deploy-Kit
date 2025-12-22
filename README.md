@@ -126,3 +126,9 @@ git commit -m "Remove local env files from git tracking"
 ```
 
 이후에는 `.gitignore` 규칙에 의해 새로 변경된 값들이 git 에 다시 잡히지 않습니다.
+
+## 패키지 삭제
+
+```bash
+pip uninstall deploy-kit
+```
