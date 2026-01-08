@@ -68,6 +68,8 @@ class DeployConfig:
     # Artifact Registry 리포지토리 내 이미지 패키지명(옵션, 미설정 시 service 이름 사용)
     backend_image_package: Optional[str] = None
     etl_image_package: Optional[str] = None
+    # 프론트엔드 빌드 시 백엔드 API base URL 로 사용할 값 (예: BACKEND_API_HOST=https://...run.app)
+    backend_api_host: Optional[str] = None
 
     # 소스 코드 경로
     # - BACKEND_SOURCE_DIR: 백엔드(및 ETL) Docker 빌드 컨텍스트 디렉토리
@@ -137,6 +139,7 @@ class DeployConfig:
             frontend_image_name=os.getenv("FRONTEND_IMAGE_NAME"),
             backend_image_package=os.getenv("BACKEND_IMAGE_PACKAGE"),
             etl_image_package=os.getenv("ETL_IMAGE_PACKAGE"),
+            backend_api_host=os.getenv("BACKEND_API_HOST"),
             enable_bigquery=_get_bool("ENABLE_BIGQUERY", False),
             enable_cloud_sql=_get_bool("ENABLE_CLOUD_SQL", False),
             enable_gcs=_get_bool("ENABLE_GCS", False),

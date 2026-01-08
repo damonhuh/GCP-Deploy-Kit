@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from typing import Iterable, List, Optional
+import os
+import shlex
+import subprocess
 
 from .config import DeployConfig
 from .logging_utils import get_logger
@@ -164,10 +167,46 @@ def apply_all(cfg: DeployConfig, only_sections: Optional[Iterable[str]] = None) 
                 gcp_secrets.ensure_secrets(cfg)
             elif name == "frontend":
                 # 실제 Firebase 배포는 firebase 섹션에서 처리,
-                # 여기서는 빌드만 담당한다고 가정 가능 (추후 확장)
-                logger.info(
-                    "프론트엔드 빌드를 수행해야 합니다. (프로젝트별 스크립트로 연동)"
-                )
+                # 여기서는 프론트엔드 빌드를 담당한다.
+                #
+                # - FRONTEND_SOURCE_DIR 이 설정되어 있다면 해당 디렉토리에서 빌드 스크립트를 실행
+                # - BACKEND_API_HOST 가 설정되어 있다면, 빌드 시 VITE_API_URL 환경변수로 주입
+                build_cmd = os.getenv("FRONTEND_BUILD_COMMAND")
+                if not build_cmd:
+                    logger.info(
+                        "프론트엔드 빌드 명령(FRONTEND_BUILD_COMMAND)이 설정되지 않아 "
+                        "frontend 섹션은 로그만 남기고 건너뜁니다."
+                    )
+                else:
+                    cwd = cfg.frontend_source_dir or "."
+                    env = os.environ.copy()
+                    if cfg.backend_api_host:
+                        env["VITE_API_URL"] = cfg.backend_api_host
+                        logger.info(
+                            "프론트엔드 빌드 시 VITE_API_URL 을 설정합니다: %s",
+                            cfg.backend_api_host,
+                        )
+                    logger.info(
+                        "프론트엔드 빌드 실행: cwd=%s cmd=%s",
+                        cwd,
+                        build_cmd,
+                    )
+                    try:
+                        subprocess.run(
+                            shlex.split(build_cmd),
+                            check=True,
+                            cwd=cwd,
+                            env=env,
+                        )
+                    except FileNotFoundError as e:  # noqa: BLE001
+                        raise RuntimeError(
+                            f"프론트엔드 빌드 명령을 찾을 수 없습니다: {build_cmd!r}"
+                        ) from e
+                    except subprocess.CalledProcessError as e:
+                        raise RuntimeError(
+                            f"프론트엔드 빌드가 실패했습니다 (exit={e.returncode}). "
+                            "FRONTEND_BUILD_COMMAND 및 빌드 로그를 확인하세요."
+                        ) from e
             elif name == "firebase":
                 firebase_hosting.deploy_frontend(cfg)
         except Exception:  # noqa: BLE001
