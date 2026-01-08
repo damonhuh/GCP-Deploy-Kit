@@ -171,7 +171,7 @@ def apply_all(cfg: DeployConfig, only_sections: Optional[Iterable[str]] = None) 
                 #
                 # - FRONTEND_SOURCE_DIR 이 설정되어 있다면 해당 디렉토리에서 빌드 스크립트를 실행
                 # - BACKEND_API_HOST 가 설정되어 있다면, 빌드 시 VITE_API_URL 환경변수로 주입
-                build_cmd = os.getenv("FRONTEND_BUILD_COMMAND")
+                build_cmd = cfg.frontend_build_command
                 if not build_cmd:
                     logger.info(
                         "프론트엔드 빌드 명령(FRONTEND_BUILD_COMMAND)이 설정되지 않아 "

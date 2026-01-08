@@ -76,6 +76,8 @@ class DeployConfig:
     # - FRONTEND_SOURCE_DIR: 프론트엔드 빌드 디렉토리 (선택)
     backend_source_dir: str = "."
     frontend_source_dir: Optional[str] = None
+    # 프론트엔드 빌드 명령 (예: npm run build, pnpm run build 등)
+    frontend_build_command: Optional[str] = None
     # 프론트엔드 빌드 산출물 디렉토리 (firebase.json 의 public 과 일치해야 함)
     frontend_build_dir: str = "dist"
 
@@ -162,6 +164,7 @@ class DeployConfig:
             secret_prefix=os.getenv("SECRET_PREFIX", ""),
             backend_source_dir=os.getenv("BACKEND_SOURCE_DIR", "."),
             frontend_source_dir=os.getenv("FRONTEND_SOURCE_DIR"),
+            frontend_build_command=os.getenv("FRONTEND_BUILD_COMMAND"),
             frontend_build_dir=os.getenv("FRONTEND_BUILD_DIR", "dist"),
             # .env.services 에서 읽어온 값들만 Cloud Run 서비스 env 로 전달
             backend_service_env=dict(_SERVICE_ENV),

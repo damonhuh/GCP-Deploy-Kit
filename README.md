@@ -118,8 +118,8 @@ deploy-gcp init
 - `FRONTEND_SOURCE_DIR` / `FRONTEND_BUILD_DIR` : 프론트엔드 소스 디렉토리와 빌드 산출물 디렉토리(`firebase.json` 의 `public` 값과 일치해야 함)
 - `BACKEND_IMAGE_PACKAGE` / `ETL_IMAGE_PACKAGE` : Artifact Registry 리포지토리 내에서 backend/etl 이미지가 사용할 패키지명(기본은 각각 `backend`, `etl`)
 - `BACKEND_API_HOST` : 프론트엔드 빌드 시 백엔드 API base URL 로 사용할 값.\
--   `deploy-gcp deploy --only frontend` 를 실행할 때, `FRONTEND_BUILD_COMMAND` 환경변수에 지정한 빌드 명령을 실행하며,\
--   이때 `BACKEND_API_HOST` 가 설정되어 있으면 `VITE_API_URL` 환경변수로 함께 전달됩니다.
+  `deploy-gcp deploy --only frontend` 를 실행할 때, `.env.infra` 에 정의한 `FRONTEND_BUILD_COMMAND` 를 실행하며,\
+  이때 `BACKEND_API_HOST` 가 설정되어 있으면 `VITE_API_URL` 환경변수로 함께 전달됩니다.
 - `FIREBASE_PROJECT_ID` / `FIREBASE_HOSTING_SITE` : Firebase Hosting 배포용 프로젝트/사이트 설정.\
   `FIREBASE_HOSTING_SITE` 는 전체 URL이 아니라 **Hosting 사이트 ID** 여야 합니다.\
   예) 사이트 URL 이 `https://poly-read-aloud.web.app` 인 경우\
@@ -155,18 +155,18 @@ deploy-gcp init
 ```bash
 FRONTEND_SOURCE_DIR=frontend
 BACKEND_API_HOST=https://your-cloud-run-backend-url
+FRONTEND_BUILD_COMMAND="npm run build"
 ```
 
 로컬/CI 에서:
 
 ```bash
-export FRONTEND_BUILD_COMMAND="npm run build"
 deploy-gcp deploy --only frontend,firebase
 ```
 
-- `frontend` 섹션에서 `FRONTEND_SOURCE_DIR`(여기서는 `frontend`) 디렉토리에서 `npm run build` 를 실행합니다.
+- `frontend` 섹션에서 `FRONTEND_SOURCE_DIR`(여기서는 `frontend`) 디렉토리에서 `FRONTEND_BUILD_COMMAND` 에 정의한 빌드 명령(예: `npm run build`)을 실행합니다.
 - 이때 `.env.infra` 의 `BACKEND_API_HOST` 값이 `VITE_API_URL` 환경변수로 주입되므로,\
--   Vite 프로젝트에서는 `import.meta.env.VITE_API_URL` 을 통해 해당 값을 사용할 수 있습니다.
+  Vite 프로젝트에서는 `import.meta.env.VITE_API_URL` 을 통해 해당 값을 사용할 수 있습니다.
 
 ## env 파일과 git (보안)
 
