@@ -65,12 +65,17 @@ class DeployConfig:
 
     backend_image_name: Optional[str] = None
     frontend_image_name: Optional[str] = None
+    # Artifact Registry 리포지토리 내 이미지 패키지명(옵션, 미설정 시 service 이름 사용)
+    backend_image_package: Optional[str] = None
+    etl_image_package: Optional[str] = None
 
     # 소스 코드 경로
     # - BACKEND_SOURCE_DIR: 백엔드(및 ETL) Docker 빌드 컨텍스트 디렉토리
     # - FRONTEND_SOURCE_DIR: 프론트엔드 빌드 디렉토리 (선택)
     backend_source_dir: str = "."
     frontend_source_dir: Optional[str] = None
+    # 프론트엔드 빌드 산출물 디렉토리 (firebase.json 의 public 과 일치해야 함)
+    frontend_build_dir: str = "dist"
 
     # 토글
     enable_bigquery: bool = False
@@ -127,6 +132,8 @@ class DeployConfig:
             ),
             backend_image_name=os.getenv("BACKEND_IMAGE_NAME"),
             frontend_image_name=os.getenv("FRONTEND_IMAGE_NAME"),
+            backend_image_package=os.getenv("BACKEND_IMAGE_PACKAGE"),
+            etl_image_package=os.getenv("ETL_IMAGE_PACKAGE"),
             enable_bigquery=_get_bool("ENABLE_BIGQUERY", False),
             enable_cloud_sql=_get_bool("ENABLE_CLOUD_SQL", False),
             enable_gcs=_get_bool("ENABLE_GCS", False),
@@ -148,6 +155,7 @@ class DeployConfig:
             secret_prefix=os.getenv("SECRET_PREFIX", ""),
             backend_source_dir=os.getenv("BACKEND_SOURCE_DIR", "."),
             frontend_source_dir=os.getenv("FRONTEND_SOURCE_DIR"),
+            frontend_build_dir=os.getenv("FRONTEND_BUILD_DIR", "dist"),
             # .env.services 에서 읽어온 값들만 Cloud Run 서비스 env 로 전달
             backend_service_env=dict(_SERVICE_ENV),
         )

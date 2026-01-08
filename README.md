@@ -8,7 +8,8 @@ GCP Cloud Run / Cloud Run Job / Firebase Hosting / BigQuery / Cloud SQL / GCS / 
 ### 1) GitHub 레포에서 설치 (권장)
 
 ```bash
-pip install "git+https://github.com/damonhuh/GCP-Deploy-Kit.git@alpha#egg=deploy-kit"
+# @alpha 대신 @main 사용 (또는 @master)
+pip install --upgrade --force-reinstall "git+https://github.com/damonhuh/GCP-Deploy-Kit.git@main#egg=deploy-kit"
 ```
 
 ### 2) 로컬 editable 설치 (개발용)
@@ -106,12 +107,17 @@ deploy-gcp init
 
 ### env 파일 역할
 
-- `.env.infra` : GCP 프로젝트/리전, Cloud Run 서비스 이름, ENABLE_*/DEPLOY_* 토글 등
+- `.env.infra` : GCP 프로젝트/리전, Cloud Run 서비스 이름, ENABLE_*/DEPLOY_* 토글, Artifact Registry 리포/이미지 설정 등
 - `.env.secrets` : Secret Manager 로 올라갈 민감한 값(DB 비밀번호, API 키 등)
 - `.env.services` : Cloud Run 서비스 내부에서 사용할 일반적인 앱 환경변수
 인프라/배포 토글(`GCP_PROJECT_ID`, `ENABLE_*`, `DEPLOY_*` 등)은
 `.env.infra` / `.env.secrets` 에 두고,
 `.env.services` 에는 애플리케이션 런타임 설정만 두는 것을 권장합니다.
+
+### 주요 env 키 예시(.env.infra)
+
+- `FRONTEND_SOURCE_DIR` / `FRONTEND_BUILD_DIR` : 프론트엔드 소스 디렉토리와 빌드 산출물 디렉토리(`firebase.json` 의 `public` 값과 일치해야 함)
+- `BACKEND_IMAGE_PACKAGE` / `ETL_IMAGE_PACKAGE` : Artifact Registry 리포지토리 내에서 backend/etl 이미지가 사용할 패키지명(기본은 각각 `backend`, `etl`)
 
 ## env 파일과 git (보안)
 

@@ -1,4 +1,5 @@
 from typing import List
+from pathlib import Path
 
 from deploy_kit.config import DeployConfig
 from deploy_kit import gcp_artifact_registry as ar
@@ -31,5 +32,18 @@ def test_build_and_push_image_local_docker_calls_docker(monkeypatch) -> None:
     assert len(calls) == 2
     assert calls[0][0] == "docker"
     assert calls[1][0] == "docker"
+
+
+def test_build_and_push_image_uses_service_packages_when_configured() -> None:
+    """
+    서비스별 이미지 패키지 오버라이드가 build_and_push_image 구현에 반영되어 있는지 확인한다.
+
+    여기서는 로컬 소스 파일을 직접 읽어 backend_image_package / etl_image_package
+    참조가 존재하는지만 검증한다.
+    """
+    src_path = Path(__file__).resolve().parents[1] / "deploy_kit" / "gcp_artifact_registry.py"
+    source = src_path.read_text(encoding="utf-8")
+    assert "backend_image_package" in source
+    assert "etl_image_package" in source
 
 

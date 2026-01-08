@@ -110,11 +110,28 @@ def build_and_push_image(cfg: DeployConfig, service: str, image_name: str, conte
     최종 이미지 URL 을 반환한다.
 
     빌드 방식은 cfg.backend_build_mode 에 따라 동작한다.
+
+    이미지 경로의 패키지명은 서비스별 설정값이 있을 경우 이를 사용하고,
+    없으면 service 인자를 그대로 사용한다.
     """
-    image_url = f"{cfg.gcp_region}-docker.pkg.dev/{cfg.gcp_project_id}/{cfg.artifact_registry_repo}/{service}:latest"
+    # 서비스별 패키지명 선택
+    if service == "backend" and cfg.backend_image_package:
+        package = cfg.backend_image_package
+    elif service == "etl" and cfg.etl_image_package:
+        package = cfg.etl_image_package
+    else:
+        package = service
+
+    image_url = f"{cfg.gcp_region}-docker.pkg.dev/{cfg.gcp_project_id}/{cfg.artifact_registry_repo}/{package}:latest"
 
     mode = (cfg.backend_build_mode or "local_docker").lower()
-    logger.info("이미지 빌드 모드: %s", mode)
+    logger.info(
+        "이미지 빌드 모드: %s (service=%s, package=%s, logical_name=%s)",
+        mode,
+        service,
+        package,
+        image_name,
+    )
 
     if mode == "local_docker":
         # 로컬 Docker 사용

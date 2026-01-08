@@ -1,3 +1,4 @@
+import os
 import sys
 from typing import Optional
 
@@ -31,6 +32,15 @@ logger = get_logger(__name__)
 def main(ctx: click.Context, chdir: str, verbose: int) -> None:
     """GCP Cloud Run / Firebase / Cloud Run Job 배포용 CLI"""
     setup_logging(verbose)
+    # 작업 디렉토리를 실제로 변경하여 firebase.json 등 상대 경로 기준을 명확히 맞춘다.
+    try:
+        os.chdir(chdir)
+    except OSError as e:  # noqa: BLE001
+        # click 이 이미 존재 여부를 검증했으므로, 여기서 예외가 나면 치명적인 오류로 간주한다.
+        logger.exception("작업 디렉토리 변경에 실패했습니다: %s", e)
+        click.echo(f"[ERROR] 작업 디렉토리 변경 실패: {e}", err=True)
+        sys.exit(1)
+
     ctx.ensure_object(dict)
     ctx.obj["chdir"] = chdir
     ctx.obj["verbose"] = verbose
