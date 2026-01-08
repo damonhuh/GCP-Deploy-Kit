@@ -103,6 +103,9 @@ class DeployConfig:
 
     firebase_project_id: Optional[str] = None
     firebase_hosting_site: Optional[str] = None
+    # Firebase Hosting 에서 /api 등의 경로를 Cloud Run 백엔드로 rewrite 하고 싶을 때 사용하는 prefix
+    # 예) FIREBASE_API_PREFIX=/api  → /api/** 가 Cloud Run backend 로 라우팅
+    firebase_api_prefix: Optional[str] = None
 
     secret_prefix: str = ""
 
@@ -152,6 +155,7 @@ class DeployConfig:
             gcs_prefix=os.getenv("GCS_PREFIX"),
             firebase_project_id=os.getenv("FIREBASE_PROJECT_ID"),
             firebase_hosting_site=os.getenv("FIREBASE_HOSTING_SITE"),
+            firebase_api_prefix=os.getenv("FIREBASE_API_PREFIX"),
             secret_prefix=os.getenv("SECRET_PREFIX", ""),
             backend_source_dir=os.getenv("BACKEND_SOURCE_DIR", "."),
             frontend_source_dir=os.getenv("FRONTEND_SOURCE_DIR"),

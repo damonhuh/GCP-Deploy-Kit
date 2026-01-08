@@ -7,16 +7,75 @@ Firebase Hosting 배포를 담당하는 모듈.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from shutil import which as _which
 from textwrap import shorten
+from typing import Any
 
 from .config import DeployConfig
 from .logging_utils import get_logger
 
 
 logger = get_logger(__name__)
+
+
+def _ensure_firebase_json(cfg: DeployConfig, build_dir: str) -> None:
+    """
+    현재 작업 디렉토리에 firebase.json 이 없으면,
+    기본 Hosting 설정(범용)을 가진 firebase.json 을 생성한다.
+
+    - hosting.site: cfg.firebase_hosting_site (있으면)
+    - hosting.public: build_dir
+    - hosting.ignore: firebase 권장 기본값
+    - hosting.rewrites:
+        - cfg.firebase_api_prefix 가 설정된 경우,
+          해당 prefix 로 들어오는 요청을 Cloud Run backend 서비스로 라우팅
+          (gcp_region / backend_service_name 사용)
+    """
+    config_path = os.path.join(os.getcwd(), "firebase.json")
+    if os.path.exists(config_path):
+        logger.debug("기존 firebase.json 이 존재하므로 새로 생성하지 않습니다: %s", config_path)
+        return
+
+    hosting: dict[str, Any] = {
+        "public": build_dir,
+        "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    }
+
+    if cfg.firebase_hosting_site:
+        hosting["site"] = cfg.firebase_hosting_site
+
+    rewrites: list[dict[str, Any]] = []
+    api_prefix = (cfg.firebase_api_prefix or "").strip()
+    if api_prefix:
+        # prefix 가 "/" 로 시작하도록 정규화
+        if not api_prefix.startswith("/"):
+            api_prefix = "/" + api_prefix
+        # trailing slash 제거 후 /** 패턴으로 변환
+        source_prefix = api_prefix.rstrip("/")
+        rewrites.append(
+            {
+                "source": f"{source_prefix}/**",
+                "run": {
+                    "serviceId": cfg.backend_service_name,
+                    "region": cfg.gcp_region,
+                },
+            }
+        )
+
+    if rewrites:
+        hosting["rewrites"] = rewrites
+
+    config: dict[str, Any] = {"hosting": hosting}
+
+    try:
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        logger.info("firebase.json 이 없어 기본 구성을 생성했습니다: %s", config_path)
+    except OSError as e:  # noqa: BLE001
+        logger.warning("firebase.json 생성에 실패했습니다(계속 진행): %s", e)
 
 
 def deploy_frontend(cfg: DeployConfig, build_dir: str | None = None) -> None:
@@ -56,6 +115,9 @@ def deploy_frontend(cfg: DeployConfig, build_dir: str | None = None) -> None:
             f"Firebase Hosting 배포용 빌드 디렉토리를 찾을 수 없습니다: {build_dir!r}. "
             "프론트엔드 빌드가 완료되었는지와 FRONTEND_BUILD_DIR 설정을 확인하세요."
         )
+
+    # firebase.json 이 없다면, 범용적인 기본 구성을 생성한다.
+    _ensure_firebase_json(cfg, build_dir)
 
     logger.info(
         "Firebase Hosting 배포: project=%s site=%s dir=%s",

@@ -117,6 +117,33 @@ deploy-gcp init
 
 - `FRONTEND_SOURCE_DIR` / `FRONTEND_BUILD_DIR` : 프론트엔드 소스 디렉토리와 빌드 산출물 디렉토리(`firebase.json` 의 `public` 값과 일치해야 함)
 - `BACKEND_IMAGE_PACKAGE` / `ETL_IMAGE_PACKAGE` : Artifact Registry 리포지토리 내에서 backend/etl 이미지가 사용할 패키지명(기본은 각각 `backend`, `etl`)
+- `FIREBASE_PROJECT_ID` / `FIREBASE_HOSTING_SITE` : Firebase Hosting 배포용 프로젝트/사이트 설정.\
+  `FIREBASE_HOSTING_SITE` 는 전체 URL이 아니라 **Hosting 사이트 ID** 여야 합니다.\
+  예) 사이트 URL 이 `https://poly-read-aloud.web.app` 인 경우\
+  `FIREBASE_PROJECT_ID=vm-deploy-poc`, `FIREBASE_HOSTING_SITE=poly-read-aloud` 로 설정하면,\
+  실제 접속 URL 은 `https://poly-read-aloud.web.app` 가 됩니다.
+- `FIREBASE_API_PREFIX` : (선택) Firebase Hosting 에서 특정 경로를 Cloud Run 백엔드로 라우팅하고 싶을 때 사용합니다.\
+  예) `FIREBASE_API_PREFIX=/api` 로 설정하면, firebase.json 이 없을 경우 deploy-kit 이 다음과 같은 기본 구성을 생성합니다:
+
+  ```json
+  {
+    "hosting": {
+      "public": "dist",
+      "rewrites": [
+        {
+          "source": "/api/**",
+          "run": {
+            "serviceId": "<BACKEND_SERVICE_NAME>",
+            "region": "<GCP_REGION>"
+          }
+        }
+      ]
+    }
+  }
+  ```
+
+  이때 프론트엔드 코드는 `fetch(\"/api/v1/auth/login\")` 처럼 상대 경로만 사용하고,\
+  Hosting 도메인(`/api/**`)으로 들어온 요청은 같은 프로젝트의 Cloud Run 백엔드로 전달됩니다.
 
 ## env 파일과 git (보안)
 
