@@ -8,7 +8,6 @@ GCP Cloud Run / Cloud Run Job / Firebase Hosting / BigQuery / Cloud SQL / GCS / 
 ### 1) GitHub 레포에서 설치 (권장)
 
 ```bash
-# @alpha 대신 @main 사용 (또는 @master)
 pip install --upgrade --force-reinstall "git+https://github.com/damonhuh/GCP-Deploy-Kit.git@main#egg=deploy-kit"
 ```
 
