@@ -33,6 +33,7 @@ def _ensure_firebase_json(cfg: DeployConfig, build_dir: str) -> None:
         - cfg.firebase_api_prefix 가 설정된 경우,
           해당 prefix 로 들어오는 요청을 Cloud Run backend 서비스로 라우팅
           (gcp_region / backend_service_name 사용)
+        - SPA 라우팅을 위한 fallback (\"**\" → /index.html)
     """
     config_path = os.path.join(os.getcwd(), "firebase.json")
     if os.path.exists(config_path):
@@ -65,8 +66,17 @@ def _ensure_firebase_json(cfg: DeployConfig, build_dir: str) -> None:
             }
         )
 
-    if rewrites:
-        hosting["rewrites"] = rewrites
+    # SPA 라우팅용 fallback 설정: 나머지 모든 경로는 /index.html 로 전달
+    # index.html 이 실제로 존재하지 않아도 Hosting 전체가 깨지지는 않으며,
+    # SPA 가 아닌 프로젝트는 firebase.json 을 직접 제공하여 이 구성을 덮어쓸 수 있다.
+    rewrites.append(
+        {
+            "source": "**",
+            "destination": "/index.html",
+        }
+    )
+
+    hosting["rewrites"] = rewrites
 
     config: dict[str, Any] = {"hosting": hosting}
 
