@@ -76,6 +76,9 @@ deploy-gcp deploy
 deploy-gcp check
 ```
 
+> 참고: `BACKEND_BUILD_MODE=cloud_build` 를 사용하는 경우, Cloud Build API(`cloudbuild.googleapis.com`)도 필수입니다.\
+> `deploy-gcp check` / `deploy-gcp deploy` 단계에서 자동으로 체크/활성화합니다.
+
 섹션별로 제한해서 배포하고 싶다면 (고급 옵션):
 
 ```bash
@@ -116,6 +119,10 @@ deploy-gcp init
 ### 주요 env 키 예시(.env.infra)
 
 - `FRONTEND_SOURCE_DIR` / `FRONTEND_BUILD_DIR` : 프론트엔드 소스 디렉토리와 빌드 산출물 디렉토리(`firebase.json` 의 `public` 값과 일치해야 함)
+- `CLI_STREAM_SUBPROCESS_OUTPUT` : gcloud/docker/npm 출력 스트리밍 여부. `true`이면 긴 작업에서 진행 로그가 그대로 보여 “멈춘 것 같은” 느낌이 줄어듭니다.
+- `CLOUD_BUILD_TIMEOUT_SECONDS` : `BACKEND_BUILD_MODE=cloud_build` 시 Cloud Build 자체 timeout(초). (`gcloud builds submit --timeout=<seconds>s` 로 전달)
+- `BACKEND_BUILD_SUBPROCESS_TIMEOUT_SECONDS` : 로컬 CLI가 빌드/푸시/프론트엔드 빌드를 기다리는 최대 시간(초). Cloud Build가 느리면 크게 설정하세요.
+- `GCLOUD_RUN_DEPLOY_TIMEOUT_SECONDS` : `gcloud run deploy` 대기 시간(초).
 - `BACKEND_IMAGE_PACKAGE` / `ETL_IMAGE_PACKAGE` : Artifact Registry 리포지토리 내에서 backend/etl 이미지가 사용할 패키지명(기본은 각각 `backend`, `etl`)
 - `BACKEND_API_HOST` : 프론트엔드 빌드 시 백엔드 API base URL 로 사용할 값.\
   `deploy-gcp deploy --only frontend` 를 실행할 때, `.env.infra` 에 정의한 `FRONTEND_BUILD_COMMAND` 를 실행하며,\

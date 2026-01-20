@@ -8,56 +8,38 @@ Artifact Registry 리포지토리 존재 여부 확인 및
 
 from __future__ import annotations
 
-import subprocess
 from textwrap import shorten
 
 from .config import DeployConfig
 from .logging_utils import get_logger
+from .subprocess_utils import run_command
 
 
 logger = get_logger(__name__)
 
 
-def _run(cmd: list[str], *, timeout: float = 900.0) -> None:
+def _run(
+    cmd: list[str],
+    *,
+    timeout: float | None = 900.0,
+    stream_output: bool = False,
+    spinner_message: str | None = None,
+) -> None:
     """
     공통 subprocess 실행 헬퍼.
 
     - stdout/stderr 를 캡처하여 실패 시 일부를 에러 메시지에 포함
     - timeout 초과 시 RuntimeError 로 래핑
     """
-    logger.info("명령 실행: %s", " ".join(cmd))
-    try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.stdout:
-            logger.debug("명령 stdout: %s", shorten(result.stdout.strip(), width=2000))
-        if result.stderr:
-            logger.debug("명령 stderr: %s", shorten(result.stderr.strip(), width=2000))
-    except FileNotFoundError as e:  # gcloud/docker 미설치 등
-        raise RuntimeError(
-            f"필요한 명령을 찾을 수 없습니다: {cmd[0]} "
-            "(gcloud/docker 가 설치되어 있는지 확인하세요)"
-        ) from e
-    except subprocess.TimeoutExpired as e:
-        raise RuntimeError(
-            f"명령 실행이 {timeout}초 안에 끝나지 않았습니다: {' '.join(cmd)}"
-        ) from e
-    except subprocess.CalledProcessError as e:
-        stdout = (e.stdout or "").strip()
-        stderr = (e.stderr or "").strip()
-        detail = ""
-        if stderr:
-            detail = "\nstderr:\n" + shorten(stderr, width=2000)
-        elif stdout:
-            detail = "\nstdout:\n" + shorten(stdout, width=2000)
-        raise RuntimeError(
-            f"명령 실행 실패: {' '.join(cmd)} (exit={e.returncode}){detail}"
-        ) from e
+    # shorten import는 기존 로그 스타일 유지용(하위 호환)이며,
+    # 실제 실행/에러 메시지 포맷팅은 run_command가 담당한다.
+    _ = shorten  # noqa: F841
+    run_command(
+        cmd,
+        timeout=timeout,
+        stream_output=stream_output,
+        spinner_message=spinner_message,
+    )
 
 
 def ensure_repository(cfg: DeployConfig) -> None:
@@ -83,7 +65,12 @@ def ensure_repository(cfg: DeployConfig) -> None:
     import subprocess
 
     try:
-        _run(describe_cmd)
+        _run(
+            describe_cmd,
+            timeout=cfg.gcloud_run_deploy_timeout_seconds,
+            stream_output=cfg.cli_stream_subprocess_output,
+            spinner_message="Artifact Registry 리포 확인 중",
+        )
         logger.info("기존 Artifact Registry 리포를 사용합니다: %s", repo)
         return
     except RuntimeError as e:
@@ -100,7 +87,12 @@ def ensure_repository(cfg: DeployConfig) -> None:
         f"--location={location}",
         f"--project={project}",
     ]
-    _run(create_cmd)
+    _run(
+        create_cmd,
+        timeout=cfg.gcloud_run_deploy_timeout_seconds,
+        stream_output=cfg.cli_stream_subprocess_output,
+        spinner_message="Artifact Registry 리포 생성 중",
+    )
     logger.info("Artifact Registry 리포를 생성했습니다: %s", repo)
 
 
@@ -137,19 +129,36 @@ def build_and_push_image(cfg: DeployConfig, service: str, image_name: str, conte
         # 로컬 Docker 사용
         build_cmd = ["docker", "build", "-t", image_url, context_dir]
         push_cmd = ["docker", "push", image_url]
-        _run(build_cmd)
-        _run(push_cmd)
+        _run(
+            build_cmd,
+            timeout=cfg.backend_build_subprocess_timeout_seconds,
+            stream_output=cfg.cli_stream_subprocess_output,
+            spinner_message="Docker 이미지 빌드 중",
+        )
+        _run(
+            push_cmd,
+            timeout=cfg.backend_build_subprocess_timeout_seconds,
+            stream_output=cfg.cli_stream_subprocess_output,
+            spinner_message="Docker 이미지 푸시 중",
+        )
     elif mode == "cloud_build":
         # Cloud Build 사용 (gcloud builds submit)
+        cloud_timeout = max(int(cfg.cloud_build_timeout_seconds), 1)
         build_cmd = [
             "gcloud",
             "builds",
             "submit",
             context_dir,
             f"--tag={image_url}",
+            f"--timeout={cloud_timeout}s",
             f"--project={cfg.gcp_project_id}",
         ]
-        _run(build_cmd)
+        _run(
+            build_cmd,
+            timeout=cfg.backend_build_subprocess_timeout_seconds,
+            stream_output=cfg.cli_stream_subprocess_output,
+            spinner_message="Cloud Build 이미지 빌드 중",
+        )
     else:
         raise ValueError(f"알 수 없는 BACKEND_BUILD_MODE 값입니다: {cfg.backend_build_mode!r} (local_docker | cloud_build 중 하나)")
 
@@ -177,11 +186,11 @@ def check_repository(cfg: DeployConfig) -> str:
     ]
 
     try:
-        result = subprocess.run(
+        result = run_command(
             describe_cmd,
-            check=True,
-            capture_output=True,
-            text=True,
+            timeout=cfg.gcloud_run_deploy_timeout_seconds,
+            stream_output=False,
+            spinner_message=None,
         )
         if result.stdout:
             logger.debug(
@@ -189,9 +198,11 @@ def check_repository(cfg: DeployConfig) -> str:
                 shorten(result.stdout.strip(), width=2000),
             )
         return f"Artifact Registry: 리포지토리 존재함 ({repo})"
-    except FileNotFoundError:
-        return "Artifact Registry: gcloud 명령을 찾을 수 없어 상태 확인 불가"
-    except subprocess.CalledProcessError:
+    except RuntimeError as e:
+        msg = str(e)
+        if "찾을 수 없습니다" in msg:
+            return "Artifact Registry: gcloud 명령을 찾을 수 없어 상태 확인 불가"
+        # describe 실패는 보통 리포 없음
         return f"Artifact Registry: 리포지토리 없음 (생성이 필요함) ({repo})"
 
 

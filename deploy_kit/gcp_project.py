@@ -7,11 +7,9 @@ GCP 프로젝트 존재 여부와 필수 API enable 을 담당하는 모듈.
 
 from __future__ import annotations
 
-import subprocess
-from textwrap import shorten
-
 from .config import DeployConfig
 from .logging_utils import get_logger
+from .subprocess_utils import run_command
 
 
 logger = get_logger(__name__)
@@ -23,46 +21,24 @@ REQUIRED_APIS_BASE = [
     "secretmanager.googleapis.com",
 ]
 
+REQUIRED_APIS_CLOUD_BUILD = ["cloudbuild.googleapis.com"]
 REQUIRED_APIS_BQ = ["bigquery.googleapis.com"]
 REQUIRED_APIS_SQL = ["sqladmin.googleapis.com"]
 REQUIRED_APIS_GCS = ["storage.googleapis.com"]
 REQUIRED_APIS_FIREBASE = ["firebase.googleapis.com", "firebaserules.googleapis.com"]
 
 
-def _run_gcloud(cmd: list[str]) -> None:
+def _run_gcloud(cfg: DeployConfig, cmd: list[str], *, spinner_message: str) -> None:
     """
     gcloud services enable 래퍼.
     """
-    logger.info("명령 실행: %s", " ".join(cmd))
-    try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-        if result.stdout:
-            logger.debug(
-                "gcloud services stdout: %s",
-                shorten(result.stdout.strip(), width=2000),
-            )
-        if result.stderr:
-            logger.debug(
-                "gcloud services stderr: %s",
-                shorten(result.stderr.strip(), width=2000),
-            )
-    except FileNotFoundError as e:
-        raise RuntimeError(
-            "gcloud 명령을 찾을 수 없습니다. gcloud CLI 가 설치/초기화되어 있는지 확인하세요."
-        ) from e
-    except subprocess.CalledProcessError as e:
-        stderr = (e.stderr or "").strip()
-        detail = ""
-        if stderr:
-            detail = "\nstderr:\n" + shorten(stderr, width=2000)
-        raise RuntimeError(
-            f"필수 API 활성화에 실패했습니다 (exit={e.returncode}).{detail}"
-        ) from e
+    # services enable은 출력이 적을 수 있어 stream=false일 때 스피너가 유용하다.
+    run_command(
+        cmd,
+        timeout=cfg.gcloud_run_deploy_timeout_seconds,
+        stream_output=cfg.cli_stream_subprocess_output,
+        spinner_message=None if cfg.cli_stream_subprocess_output else spinner_message,
+    )
 
 
 def ensure_project_and_apis(cfg: DeployConfig) -> None:
@@ -73,6 +49,8 @@ def ensure_project_and_apis(cfg: DeployConfig) -> None:
     logger.info("프로젝트 및 API 설정 확인: %s", cfg.gcp_project_id)
 
     apis = list(REQUIRED_APIS_BASE)
+    if (cfg.backend_build_mode or "").lower() == "cloud_build":
+        apis += REQUIRED_APIS_CLOUD_BUILD
     if cfg.enable_bigquery:
         apis += REQUIRED_APIS_BQ
     if cfg.enable_cloud_sql:
@@ -96,7 +74,7 @@ def ensure_project_and_apis(cfg: DeployConfig) -> None:
         f"--project={cfg.gcp_project_id}",
         "--quiet",
     ]
-    _run_gcloud(cmd)
+    _run_gcloud(cfg, cmd, spinner_message="필수 API 활성화 중")
 
 
 def check_project_and_apis(cfg: DeployConfig) -> list[str]:
@@ -116,28 +94,25 @@ def check_project_and_apis(cfg: DeployConfig) -> list[str]:
     ]
     logger.info("프로젝트 존재 여부 확인: %s", cfg.gcp_project_id)
     try:
-        subprocess.run(
-            describe_cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        run_command(describe_cmd, timeout=cfg.gcloud_run_deploy_timeout_seconds, stream_output=False)
         results.append(f"Project: 존재함 ({cfg.gcp_project_id})")
-    except FileNotFoundError:
-        results.append("Project: gcloud 명령을 찾을 수 없어 확인 불가")
-        return results
-    except subprocess.CalledProcessError as e:
-        stderr = (e.stderr or "").strip() if e.stderr else ""
+    except RuntimeError as e:
+        stderr = str(e)
+        if "찾을 수 없습니다" in stderr:
+            results.append("Project: gcloud 명령을 찾을 수 없어 확인 불가")
+            return results
         if "NOT_FOUND" in stderr or "not found" in stderr.lower():
             results.append(f"Project: 없음 (생성이 필요함) ({cfg.gcp_project_id})")
         else:
             results.append(
-                f"Project: 조회 실패 (gcloud projects describe, exit={e.returncode})"
+                "Project: 조회 실패 (gcloud projects describe)"
             )
         return results
 
     # API 상태 확인
     apis = list(REQUIRED_APIS_BASE)
+    if (cfg.backend_build_mode or "").lower() == "cloud_build":
+        apis += REQUIRED_APIS_CLOUD_BUILD
     if cfg.enable_bigquery:
         apis += REQUIRED_APIS_BQ
     if cfg.enable_cloud_sql:
@@ -164,17 +139,16 @@ def check_project_and_apis(cfg: DeployConfig) -> list[str]:
             "--quiet",
         ]
         try:
-            proc = subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except FileNotFoundError:
-            results.append(f"API: gcloud 명령을 찾을 수 없어 {api} 상태 확인 불가")
+            proc = run_command(cmd, timeout=cfg.gcloud_run_deploy_timeout_seconds, stream_output=False)
+            enabled = bool(proc.stdout.strip())
+        except RuntimeError as e:
+            msg = str(e)
+            if "찾을 수 없습니다" in msg:
+                results.append(f"API: gcloud 명령을 찾을 수 없어 {api} 상태 확인 불가")
+            else:
+                results.append(f"API: 상태 확인 실패 ({api})")
             continue
 
-        enabled = bool(proc.stdout.strip())
         if enabled:
             results.append(f"API: 활성화됨 ({api})")
         else:

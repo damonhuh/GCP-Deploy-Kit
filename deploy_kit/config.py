@@ -46,6 +46,16 @@ def _get_bool(name: str, default: bool = False) -> bool:
     return raw.lower() in {"1", "true", "yes", "y"}
 
 
+def _get_int(name: str, default: int) -> int:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return int(raw)
+    except ValueError as e:
+        raise ValueError(f"{name} 는 정수여야 합니다: {raw!r}") from e
+
+
 @dataclass
 class DeployConfig:
     # 필수 공통
@@ -59,6 +69,17 @@ class DeployConfig:
 
     # 이미지 빌드 전략 (local_docker | cloud_build)
     backend_build_mode: str = "local_docker"
+
+    # CLI/subprocess UX
+    # - true: gcloud/docker/npm 등의 출력(stream)을 그대로 보여준다.
+    # - false: 조용히 실행하고(캡처), 실패 시 일부 로그만 요약하여 출력한다.
+    cli_stream_subprocess_output: bool = True
+
+    # 타임아웃 (초)
+    # - cloud_build 모드일 때는 Cloud Build 자체 timeout 과, 로컬에서 기다리는 timeout 을 분리한다.
+    cloud_build_timeout_seconds: int = 3600
+    backend_build_subprocess_timeout_seconds: int = 7200
+    gcloud_run_deploy_timeout_seconds: int = 1800
 
     # Cloud Run 공개 여부
     backend_allow_unauthenticated: bool = True
@@ -134,6 +155,18 @@ class DeployConfig:
             artifact_registry_repo=req("ARTIFACT_REGISTRY_REPO"),
             backend_service_name=req("BACKEND_SERVICE_NAME"),
             backend_build_mode=os.getenv("BACKEND_BUILD_MODE", "local_docker"),
+            cli_stream_subprocess_output=_get_bool(
+                "CLI_STREAM_SUBPROCESS_OUTPUT", True
+            ),
+            cloud_build_timeout_seconds=_get_int(
+                "CLOUD_BUILD_TIMEOUT_SECONDS", 3600
+            ),
+            backend_build_subprocess_timeout_seconds=_get_int(
+                "BACKEND_BUILD_SUBPROCESS_TIMEOUT_SECONDS", 7200
+            ),
+            gcloud_run_deploy_timeout_seconds=_get_int(
+                "GCLOUD_RUN_DEPLOY_TIMEOUT_SECONDS", 1800
+            ),
             backend_allow_unauthenticated=_get_bool(
                 "BACKEND_ALLOW_UNAUTHENTICATED", True
             ),
@@ -177,6 +210,18 @@ class DeployConfig:
 
         # 기능 토글별 추가 검증
         errors: List[str] = []
+
+        # 타임아웃 값 검증
+        if cfg.cloud_build_timeout_seconds <= 0:
+            errors.append("CLOUD_BUILD_TIMEOUT_SECONDS 는 1 이상의 정수여야 합니다.")
+        if cfg.backend_build_subprocess_timeout_seconds <= 0:
+            errors.append(
+                "BACKEND_BUILD_SUBPROCESS_TIMEOUT_SECONDS 는 1 이상의 정수여야 합니다."
+            )
+        if cfg.gcloud_run_deploy_timeout_seconds <= 0:
+            errors.append(
+                "GCLOUD_RUN_DEPLOY_TIMEOUT_SECONDS 는 1 이상의 정수여야 합니다."
+            )
 
         # BigQuery 기본값/검증
         if cfg.enable_bigquery:

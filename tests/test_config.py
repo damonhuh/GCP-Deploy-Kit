@@ -51,3 +51,16 @@ def test_bigquery_toggle_requires_dataset_id(monkeypatch: pytest.MonkeyPatch) ->
     assert "BIGQUERY_DATASET_ID" in str(excinfo.value)
 
 
+def test_invalid_timeout_env_raises_value_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    env = _base_env()
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    monkeypatch.setenv("CLOUD_BUILD_TIMEOUT_SECONDS", "not-an-int")
+
+    with pytest.raises(ValueError) as excinfo:
+        DeployConfig.from_env()
+
+    assert "CLOUD_BUILD_TIMEOUT_SECONDS" in str(excinfo.value)
+
+

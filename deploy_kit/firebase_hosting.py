@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import json
 import os
-import subprocess
 from shutil import which as _which
 from textwrap import shorten
 from typing import Any
 
 from .config import DeployConfig
 from .logging_utils import get_logger
+from .subprocess_utils import run_command
 
 
 logger = get_logger(__name__)
@@ -147,29 +147,25 @@ def deploy_frontend(cfg: DeployConfig, build_dir: str | None = None) -> None:
     ]
 
     try:
-        result = subprocess.run(
+        result = run_command(
             cmd,
-            check=True,
-            capture_output=True,
-            text=True,
+            timeout=cfg.backend_build_subprocess_timeout_seconds,
+            stream_output=cfg.cli_stream_subprocess_output,
+            spinner_message=None
+            if cfg.cli_stream_subprocess_output
+            else "Firebase Hosting 배포 중",
         )
         if result.stdout:
             logger.debug(
                 "firebase deploy stdout: %s",
                 shorten(result.stdout.strip(), width=2000),
             )
-        if result.stderr:
+        if getattr(result, "stderr", ""):
             logger.debug(
                 "firebase deploy stderr: %s",
-                shorten(result.stderr.strip(), width=2000),
+                shorten(getattr(result, "stderr", "").strip(), width=2000),
             )
-    except subprocess.CalledProcessError as e:
-        stderr = (e.stderr or "").strip()
-        detail = ""
-        if stderr:
-            detail = "\nstderr:\n" + shorten(stderr, width=2000)
-        raise RuntimeError(
-            f"Firebase Hosting 배포에 실패했습니다 (exit={e.returncode}).{detail}"
-        ) from e
+    except RuntimeError as e:
+        raise RuntimeError(f"Firebase Hosting 배포에 실패했습니다. {e}") from e
 
 

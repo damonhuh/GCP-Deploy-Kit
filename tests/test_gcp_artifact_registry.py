@@ -3,6 +3,7 @@ from pathlib import Path
 
 from deploy_kit.config import DeployConfig
 from deploy_kit import gcp_artifact_registry as ar
+from deploy_kit.subprocess_utils import RunResult
 
 
 def _cfg(build_mode: str = "local_docker") -> DeployConfig:
@@ -19,10 +20,11 @@ def _cfg(build_mode: str = "local_docker") -> DeployConfig:
 def test_build_and_push_image_local_docker_calls_docker(monkeypatch) -> None:
     calls: List[list[str]] = []
 
-    def fake_run(cmd: list[str], *, timeout: float = 900.0) -> None:  # noqa: ARG001
-        calls.append(cmd)
+    def fake_run_command(cmd, **kwargs) -> RunResult:  # noqa: ANN001, ARG001
+        calls.append(list(cmd))
+        return RunResult(returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(ar, "_run", fake_run)
+    monkeypatch.setattr(ar, "run_command", fake_run_command)
 
     cfg = _cfg("local_docker")
     image_url = ar.build_and_push_image(cfg, service="backend", image_name="backend")
@@ -32,6 +34,27 @@ def test_build_and_push_image_local_docker_calls_docker(monkeypatch) -> None:
     assert len(calls) == 2
     assert calls[0][0] == "docker"
     assert calls[1][0] == "docker"
+
+
+def test_build_and_push_image_cloud_build_adds_timeout_flag(monkeypatch) -> None:
+    calls: List[list[str]] = []
+
+    def fake_run_command(cmd, **kwargs) -> RunResult:  # noqa: ANN001, ARG001
+        calls.append(list(cmd))
+        return RunResult(returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(ar, "run_command", fake_run_command)
+
+    cfg = _cfg("cloud_build")
+    cfg.cloud_build_timeout_seconds = 1234
+    cfg.backend_build_subprocess_timeout_seconds = 9999
+    cfg.cli_stream_subprocess_output = True
+
+    _ = ar.build_and_push_image(cfg, service="backend", image_name="backend", context_dir=".")
+
+    assert len(calls) == 1
+    assert calls[0][0:3] == ["gcloud", "builds", "submit"]
+    assert any(a == "--timeout=1234s" for a in calls[0])
 
 
 def test_build_and_push_image_uses_service_packages_when_configured() -> None:

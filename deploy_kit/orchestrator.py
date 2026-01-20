@@ -3,10 +3,10 @@ from __future__ import annotations
 from typing import Iterable, List, Optional
 import os
 import shlex
-import subprocess
 
 from .config import DeployConfig
 from .logging_utils import get_logger
+from .subprocess_utils import run_command
 from . import (
     gcp_auth,
     gcp_project,
@@ -192,19 +192,19 @@ def apply_all(cfg: DeployConfig, only_sections: Optional[Iterable[str]] = None) 
                         build_cmd,
                     )
                     try:
-                        subprocess.run(
+                        run_command(
                             shlex.split(build_cmd),
-                            check=True,
                             cwd=cwd,
                             env=env,
+                            timeout=cfg.backend_build_subprocess_timeout_seconds,
+                            stream_output=cfg.cli_stream_subprocess_output,
+                            spinner_message=None
+                            if cfg.cli_stream_subprocess_output
+                            else "프론트엔드 빌드 중",
                         )
-                    except FileNotFoundError as e:  # noqa: BLE001
+                    except RuntimeError as e:
                         raise RuntimeError(
-                            f"프론트엔드 빌드 명령을 찾을 수 없습니다: {build_cmd!r}"
-                        ) from e
-                    except subprocess.CalledProcessError as e:
-                        raise RuntimeError(
-                            f"프론트엔드 빌드가 실패했습니다 (exit={e.returncode}). "
+                            f"프론트엔드 빌드가 실패했습니다. "
                             "FRONTEND_BUILD_COMMAND 및 빌드 로그를 확인하세요."
                         ) from e
             elif name == "firebase":
@@ -305,6 +305,48 @@ def check_all(cfg: DeployConfig, base_dir: str = ".", show_all: bool = False) ->
         critical.append(msg)
 
     lines.append("")
+
+    # 2.5) Backend build context (Dockerfile 등)
+    if cfg.deploy_backend or cfg.deploy_etl_job:
+        lines.append("## Backend build context")
+        backend_dir = os.path.abspath(cfg.backend_source_dir or ".")
+        dockerfile_path = os.path.join(backend_dir, "Dockerfile")
+        dockerignore_path = os.path.join(backend_dir, ".dockerignore")
+        node_modules_path = os.path.join(backend_dir, "node_modules")
+
+        if not os.path.isdir(backend_dir):
+            msg = f"Backend: BACKEND_SOURCE_DIR 디렉토리를 찾을 수 없습니다 ({backend_dir})"
+            if show_all:
+                lines.append(f"- {msg}")
+            critical.append(msg)
+        else:
+            if not os.path.isfile(dockerfile_path):
+                msg = f"Backend: Dockerfile 이 없습니다 ({dockerfile_path})"
+                if show_all:
+                    lines.append(f"- {msg}")
+                critical.append(msg)
+            else:
+                ok = f"Backend: Dockerfile 확인됨 ({dockerfile_path})"
+                if show_all:
+                    lines.append(f"- {ok}")
+
+            if not os.path.isfile(dockerignore_path):
+                msg = f"Backend: .dockerignore 가 없습니다 (업로드/빌드 시간이 길어질 수 있음) ({dockerignore_path})"
+                if show_all:
+                    lines.append(f"- {msg}")
+                warnings.append(msg)
+            else:
+                ok = f"Backend: .dockerignore 확인됨 ({dockerignore_path})"
+                if show_all:
+                    lines.append(f"- {ok}")
+
+            if os.path.isdir(node_modules_path):
+                msg = f"Backend: node_modules/ 가 빌드 컨텍스트에 존재합니다 (Cloud Build 업로드/빌드가 매우 느려질 수 있음) ({node_modules_path})"
+                if show_all:
+                    lines.append(f"- {msg}")
+                warnings.append(msg)
+
+        lines.append("")
 
     # 3) GCS
     lines.append("## GCS")

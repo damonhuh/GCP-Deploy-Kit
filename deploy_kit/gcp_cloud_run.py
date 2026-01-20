@@ -7,11 +7,9 @@ Cloud Run 서비스 및 Cloud Run Job 배포 책임을 가지는 모듈.
 
 from __future__ import annotations
 
-import subprocess
-from textwrap import shorten
-
 from .config import DeployConfig
 from .logging_utils import get_logger
+from .subprocess_utils import run_command
 
 
 logger = get_logger(__name__)
@@ -66,42 +64,13 @@ def _build_backend_env(cfg: DeployConfig) -> dict:
     return env
 
 
-def _run_gcloud(cmd: list[str], *, timeout: float = 900.0) -> None:
-    """
-    Cloud Run 관련 gcloud 명령 실행 헬퍼.
-    """
-    logger.info("명령 실행: %s", " ".join(cmd))
-    try:
-        result = subprocess.run(
-            cmd,
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        if result.stdout:
-            logger.debug("gcloud stdout: %s", shorten(result.stdout.strip(), width=2000))
-        if result.stderr:
-            logger.debug("gcloud stderr: %s", shorten(result.stderr.strip(), width=2000))
-    except FileNotFoundError as e:
-        raise RuntimeError(
-            "gcloud 명령을 찾을 수 없습니다. gcloud CLI 가 설치/초기화되어 있는지 확인하세요."
-        ) from e
-    except subprocess.TimeoutExpired as e:
-        raise RuntimeError(
-            f"gcloud 명령이 {timeout}초 안에 완료되지 않았습니다. 명령: {' '.join(cmd)}"
-        ) from e
-    except subprocess.CalledProcessError as e:
-        stderr = (e.stderr or "").strip()
-        stdout = (e.stdout or "").strip()
-        detail = ""
-        if stderr:
-            detail = "\nstderr:\n" + shorten(stderr, width=2000)
-        elif stdout:
-            detail = "\nstdout:\n" + shorten(stdout, width=2000)
-        raise RuntimeError(
-            f"Cloud Run 관련 gcloud 명령이 실패했습니다 (exit={e.returncode}).{detail}"
-        ) from e
+def _run_gcloud(cfg: DeployConfig, cmd: list[str], *, spinner_message: str) -> None:
+    run_command(
+        cmd,
+        timeout=cfg.gcloud_run_deploy_timeout_seconds,
+        stream_output=cfg.cli_stream_subprocess_output,
+        spinner_message=None if cfg.cli_stream_subprocess_output else spinner_message,
+    )
 
 
 def deploy_backend_service(cfg: DeployConfig, image_url: str) -> None:
@@ -146,7 +115,7 @@ def deploy_backend_service(cfg: DeployConfig, image_url: str) -> None:
         cfg.backend_allow_unauthenticated,
     )
 
-    _run_gcloud(cmd)
+    _run_gcloud(cfg, cmd, spinner_message="Cloud Run 서비스 배포 중")
 
 
 def deploy_etl_job(cfg: DeployConfig, image_url: str) -> None:
@@ -187,6 +156,6 @@ def deploy_etl_job(cfg: DeployConfig, image_url: str) -> None:
         sorted(service_env.keys()),
     )
 
-    _run_gcloud(cmd)
+    _run_gcloud(cfg, cmd, spinner_message="Cloud Run Job 배포 중")
 
 
