@@ -8,6 +8,7 @@ from dotenv import dotenv_values
 from .config import load_env_files, DeployConfig
 from .logging_utils import setup_logging, get_logger
 from .orchestrator import ALL_SECTIONS, apply_all, plan_all, check_all
+from .subprocess_utils import configure_cli_progress
 
 
 logger = get_logger(__name__)
@@ -50,6 +51,13 @@ def _load_config_from_ctx(ctx: click.Context) -> DeployConfig:
     base_dir: str = ctx.obj["chdir"]
     load_env_files(base_dir)
     cfg = DeployConfig.from_env()
+    # subprocess 진행표시(스피너/경과시간) 전역 설정 반영
+    configure_cli_progress(
+        show_progress=cfg.cli_show_progress,
+        idle_seconds=cfg.cli_progress_idle_seconds,
+        style=cfg.cli_progress_style,
+        interval=cfg.cli_progress_interval_seconds,
+    )
     logger.debug("Config loaded: %s", cfg)
     return cfg
 
@@ -108,7 +116,7 @@ def plan(ctx: click.Context, show_all: bool) -> None:
     "only",
     type=str,
     default="",
-    help="쉼표로 구분된 섹션 이름(backend,frontend,etl,bq,sql,gcs,secrets,firebase). "
+    help="쉼표로 구분된 섹션 이름(backend,frontend,frontend_cloud_run,etl,bq,sql,gcs,secrets,firebase). "
     "기본 동작은 .env.infra 의 ENABLE_*/DEPLOY_* 토글을 사용합니다.",
 )
 @click.pass_context

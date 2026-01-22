@@ -64,3 +64,48 @@ def test_invalid_timeout_env_raises_value_error(monkeypatch: pytest.MonkeyPatch)
     assert "CLOUD_BUILD_TIMEOUT_SECONDS" in str(excinfo.value)
 
 
+def test_frontend_cloud_run_requires_service_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    env = _base_env()
+    env.update(
+        {
+            "DEPLOY_FRONTEND_CLOUD_RUN": "true",
+            "FRONTEND_SOURCE_DIR": "frontend",
+            "FRONTEND_IMAGE_NAME": "frontend",
+            # FRONTEND_SERVICE_NAME intentionally omitted
+        }
+    )
+
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    with pytest.raises(ValueError) as excinfo:
+        DeployConfig.from_env()
+
+    assert "FRONTEND_SERVICE_NAME" in str(excinfo.value)
+
+
+def test_frontend_cloud_run_proxy_requires_target_or_backend_host(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    env = _base_env()
+    env.update(
+        {
+            "DEPLOY_FRONTEND_CLOUD_RUN": "true",
+            "FRONTEND_SERVICE_NAME": "frontend-svc",
+            "FRONTEND_SOURCE_DIR": "frontend",
+            "FRONTEND_IMAGE_NAME": "frontend",
+            "FRONTEND_API_PREFIX": "/api",
+            # FRONTEND_API_TARGET intentionally omitted
+            # BACKEND_API_HOST intentionally omitted
+        }
+    )
+
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+
+    with pytest.raises(ValueError) as excinfo:
+        DeployConfig.from_env()
+
+    assert "FRONTEND_API_TARGET" in str(excinfo.value) or "BACKEND_API_HOST" in str(
+        excinfo.value
+    )

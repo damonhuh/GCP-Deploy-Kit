@@ -94,6 +94,7 @@ deploy-gcp deploy --only backend,etl
 - `gcs` : GCS 버킷
 - `secrets` : Secret Manager
 - `frontend` : 프론트엔드 빌드 (실제 빌드 스크립트는 서비스별로 연결)
+- `frontend_cloud_run` : 프론트엔드 Cloud Run 서비스 배포 (Firebase 없이 스테이지 구성 가능)
 - `firebase` : Firebase Hosting 배포
 
 ## env 템플릿 생성
@@ -174,6 +175,41 @@ deploy-gcp deploy --only frontend,firebase
 - `frontend` 섹션에서 `FRONTEND_SOURCE_DIR`(여기서는 `frontend`) 디렉토리에서 `FRONTEND_BUILD_COMMAND` 에 정의한 빌드 명령(예: `npm run build`)을 실행합니다.
 - 이때 `.env.infra` 의 `BACKEND_API_HOST` 값이 `VITE_API_URL` 환경변수로 주입되므로,\
   Vite 프로젝트에서는 `import.meta.env.VITE_API_URL` 을 통해 해당 값을 사용할 수 있습니다.
+
+## 스테이지: Backend + Frontend Cloud Run (Firebase 없이)
+
+Firebase Hosting 도메인을 쓰지 않고, **백엔드/프론트 2개의 Cloud Run 서비스**로 스테이징 환경을 구성할 수 있습니다.
+
+`.env.infra` 예시:
+
+```bash
+DEPLOY_BACKEND=true
+DEPLOY_FRONTEND_CLOUD_RUN=true
+
+BACKEND_SERVICE_NAME=your-backend-service-name
+FRONTEND_SERVICE_NAME=your-frontend-service-name
+
+BACKEND_SOURCE_DIR=backend
+FRONTEND_SOURCE_DIR=frontend
+
+BACKEND_IMAGE_NAME=backend
+FRONTEND_IMAGE_NAME=frontend
+```
+
+배포:
+
+```bash
+deploy-gcp deploy --only backend,frontend_cloud_run
+```
+
+### (선택) `/api/*` 프록시 라우팅
+
+Firebase Hosting 의 rewrite 처럼, 프론트에서 `/api/*` 를 백엔드로 보내고 싶다면 다음 env 를 사용하세요:
+
+- `FRONTEND_API_PREFIX=/api`
+- `FRONTEND_API_TARGET` 또는 `BACKEND_API_HOST` 중 하나
+
+> 참고: Cloud Run 자체에는 rewrite/proxy 기능이 없어서, 실제 reverse proxy 는 프론트 컨테이너(Nginx/Caddy 등)에서 처리해야 합니다. deploy-kit은 위 값을 **Cloud Run env 로 주입**만 합니다.
 
 ## env 파일과 git (보안)
 

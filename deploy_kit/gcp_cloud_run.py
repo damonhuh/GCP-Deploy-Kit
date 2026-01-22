@@ -34,6 +34,16 @@ def _build_backend_env(cfg: DeployConfig) -> dict:
         "BACKEND_ALLOW_UNAUTHENTICATED",
         "BACKEND_IMAGE_NAME",
         "FRONTEND_IMAGE_NAME",
+        "FRONTEND_SERVICE_NAME",
+        "FRONTEND_ALLOW_UNAUTHENTICATED",
+        "DEPLOY_FRONTEND_CLOUD_RUN",
+        "FRONTEND_API_PREFIX",
+        "FRONTEND_API_TARGET",
+        "FRONTEND_IMAGE_PACKAGE",
+        "FRONTEND_SOURCE_DIR",
+        "FRONTEND_BUILD_DIR",
+        "FRONTEND_BUILD_COMMAND",
+        "BACKEND_API_HOST",
         "ENABLE_BIGQUERY",
         "ENABLE_CLOUD_SQL",
         "ENABLE_GCS",
@@ -159,3 +169,70 @@ def deploy_etl_job(cfg: DeployConfig, image_url: str) -> None:
     _run_gcloud(cfg, cmd, spinner_message="Cloud Run Job 배포 중")
 
 
+def _build_frontend_env(cfg: DeployConfig) -> dict[str, str]:
+    """
+    프론트 Cloud Run 컨테이너에 전달할 env.
+
+    - reverse proxy 등은 Cloud Run이 아닌 프론트 컨테이너에서 수행한다.
+    - deploy-kit은 컨테이너가 사용할 수 있도록 설정용 env만 주입한다.
+    """
+    env: dict[str, str] = {}
+
+    if cfg.backend_api_host:
+        env["BACKEND_API_HOST"] = cfg.backend_api_host
+    if cfg.frontend_api_prefix:
+        env["FRONTEND_API_PREFIX"] = cfg.frontend_api_prefix
+    if cfg.frontend_api_target:
+        env["FRONTEND_API_TARGET"] = cfg.frontend_api_target
+
+    return env
+
+
+def deploy_frontend_service(cfg: DeployConfig, image_url: str) -> None:
+    """
+    프론트 Cloud Run 서비스를 배포한다.
+    (컨테이너 이미지 자체는 FRONTEND_SOURCE_DIR Dockerfile 기반으로 빌드되어야 함)
+    """
+    if not cfg.frontend_service_name:
+        raise ValueError(
+            "frontend Cloud Run 배포를 위해 FRONTEND_SERVICE_NAME 이 필요합니다."
+        )
+
+    service_name = cfg.frontend_service_name
+    service_env = _build_frontend_env(cfg)
+
+    env_arg = ""
+    if service_env:
+        pairs = [f"{k}={v}" for k, v in service_env.items()]
+        env_arg = ",".join(pairs)
+
+    cmd = [
+        "gcloud",
+        "run",
+        "deploy",
+        service_name,
+        f"--image={image_url}",
+        f"--region={cfg.gcp_region}",
+        f"--project={cfg.gcp_project_id}",
+        f"--service-account={cfg.deploy_sa_email}",
+        "--platform=managed",
+        "--quiet",
+    ]
+
+    if env_arg:
+        cmd.append(f"--set-env-vars={env_arg}")
+
+    if cfg.frontend_allow_unauthenticated:
+        cmd.append("--allow-unauthenticated")
+    else:
+        cmd.append("--no-allow-unauthenticated")
+
+    logger.info(
+        "Cloud Run 프론트 서비스 배포: service=%s, image=%s, env_keys=%s, allow_unauth=%s",
+        service_name,
+        image_url,
+        sorted(service_env.keys()),
+        cfg.frontend_allow_unauthenticated,
+    )
+
+    _run_gcloud(cfg, cmd, spinner_message="Cloud Run 프론트 서비스 배포 중")

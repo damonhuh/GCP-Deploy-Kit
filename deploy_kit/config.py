@@ -56,6 +56,16 @@ def _get_int(name: str, default: int) -> int:
         raise ValueError(f"{name} 는 정수여야 합니다: {raw!r}") from e
 
 
+def _get_float(name: str, default: float) -> float:
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        return float(raw)
+    except ValueError as e:
+        raise ValueError(f"{name} 는 숫자(float)여야 합니다: {raw!r}") from e
+
+
 @dataclass
 class DeployConfig:
     # 필수 공통
@@ -74,6 +84,14 @@ class DeployConfig:
     # - true: gcloud/docker/npm 등의 출력(stream)을 그대로 보여준다.
     # - false: 조용히 실행하고(캡처), 실패 시 일부 로그만 요약하여 출력한다.
     cli_stream_subprocess_output: bool = True
+    # - true: 출력이 끊기는 구간에서도 진행표시(스피너/경과시간)를 보여준다.
+    cli_show_progress: bool = True
+    # - 진행표시가 나타나기까지의 '무출력' 기준 시간(초)
+    cli_progress_idle_seconds: float = 2.0
+    # - braille(⠙) | ascii(|/-\\)
+    cli_progress_style: str = "braille"
+    # - 스피너 프레임 갱신 간격(초)
+    cli_progress_interval_seconds: float = 0.12
 
     # 타임아웃 (초)
     # - cloud_build 모드일 때는 Cloud Build 자체 timeout 과, 로컬에서 기다리는 timeout 을 분리한다.
@@ -86,6 +104,19 @@ class DeployConfig:
 
     backend_image_name: Optional[str] = None
     frontend_image_name: Optional[str] = None
+    # Frontend Cloud Run 서비스 이름 (DEPLOY_FRONTEND_CLOUD_RUN=true 일 때 필수)
+    frontend_service_name: Optional[str] = None
+    # Frontend Cloud Run 공개 여부
+    frontend_allow_unauthenticated: bool = True
+    # Frontend Cloud Run 배포 토글
+    deploy_frontend_cloud_run: bool = False
+    # Frontend Cloud Run 프록시 설정(컨테이너가 이 env 를 사용하여 reverse proxy 처리)
+    # - FRONTEND_API_PREFIX: /api 같은 prefix
+    # - FRONTEND_API_TARGET: 프록시 대상 URL (없으면 BACKEND_API_HOST 사용)
+    frontend_api_prefix: Optional[str] = None
+    frontend_api_target: Optional[str] = None
+    # Artifact Registry 리포지토리 내 프론트 이미지 패키지명(옵션)
+    frontend_image_package: Optional[str] = None
     # Artifact Registry 리포지토리 내 이미지 패키지명(옵션, 미설정 시 service 이름 사용)
     backend_image_package: Optional[str] = None
     etl_image_package: Optional[str] = None
@@ -158,6 +189,10 @@ class DeployConfig:
             cli_stream_subprocess_output=_get_bool(
                 "CLI_STREAM_SUBPROCESS_OUTPUT", True
             ),
+            cli_show_progress=_get_bool("CLI_SHOW_PROGRESS", True),
+            cli_progress_idle_seconds=_get_float("CLI_PROGRESS_IDLE_SECONDS", 2.0),
+            cli_progress_style=os.getenv("CLI_PROGRESS_STYLE", "braille"),
+            cli_progress_interval_seconds=_get_float("CLI_PROGRESS_INTERVAL_SECONDS", 0.12),
             cloud_build_timeout_seconds=_get_int(
                 "CLOUD_BUILD_TIMEOUT_SECONDS", 3600
             ),
@@ -172,6 +207,16 @@ class DeployConfig:
             ),
             backend_image_name=os.getenv("BACKEND_IMAGE_NAME"),
             frontend_image_name=os.getenv("FRONTEND_IMAGE_NAME"),
+            frontend_service_name=os.getenv("FRONTEND_SERVICE_NAME"),
+            frontend_allow_unauthenticated=_get_bool(
+                "FRONTEND_ALLOW_UNAUTHENTICATED", True
+            ),
+            deploy_frontend_cloud_run=_get_bool(
+                "DEPLOY_FRONTEND_CLOUD_RUN", False
+            ),
+            frontend_api_prefix=os.getenv("FRONTEND_API_PREFIX"),
+            frontend_api_target=os.getenv("FRONTEND_API_TARGET"),
+            frontend_image_package=os.getenv("FRONTEND_IMAGE_PACKAGE"),
             backend_image_package=os.getenv("BACKEND_IMAGE_PACKAGE"),
             etl_image_package=os.getenv("ETL_IMAGE_PACKAGE"),
             backend_api_host=os.getenv("BACKEND_API_HOST"),
@@ -211,6 +256,32 @@ class DeployConfig:
         # 기능 토글별 추가 검증
         errors: List[str] = []
 
+        # Frontend Cloud Run 배포 관련 검증
+        if cfg.deploy_frontend_cloud_run:
+            if not cfg.frontend_service_name:
+                errors.append(
+                    "DEPLOY_FRONTEND_CLOUD_RUN=true 이면 FRONTEND_SERVICE_NAME 환경변수가 필요합니다."
+                )
+            if not cfg.frontend_source_dir:
+                errors.append(
+                    "DEPLOY_FRONTEND_CLOUD_RUN=true 이면 FRONTEND_SOURCE_DIR 환경변수가 필요합니다."
+                )
+            if not cfg.frontend_image_name:
+                errors.append(
+                    "DEPLOY_FRONTEND_CLOUD_RUN=true 이면 FRONTEND_IMAGE_NAME 환경변수가 필요합니다."
+                )
+
+            api_prefix = (cfg.frontend_api_prefix or "").strip()
+            if api_prefix:
+                # 타깃이 없으면 BACKEND_API_HOST 를 기본으로 사용
+                if not (cfg.frontend_api_target or "").strip():
+                    if (cfg.backend_api_host or "").strip():
+                        cfg.frontend_api_target = cfg.backend_api_host
+                    else:
+                        errors.append(
+                            "FRONTEND_API_PREFIX 가 설정된 경우 FRONTEND_API_TARGET 또는 BACKEND_API_HOST 중 하나가 필요합니다."
+                        )
+
         # 타임아웃 값 검증
         if cfg.cloud_build_timeout_seconds <= 0:
             errors.append("CLOUD_BUILD_TIMEOUT_SECONDS 는 1 이상의 정수여야 합니다.")
@@ -222,6 +293,12 @@ class DeployConfig:
             errors.append(
                 "GCLOUD_RUN_DEPLOY_TIMEOUT_SECONDS 는 1 이상의 정수여야 합니다."
             )
+        if cfg.cli_progress_idle_seconds < 0:
+            errors.append("CLI_PROGRESS_IDLE_SECONDS 는 0 이상의 숫자여야 합니다.")
+        if cfg.cli_progress_interval_seconds <= 0:
+            errors.append("CLI_PROGRESS_INTERVAL_SECONDS 는 0보다 큰 숫자여야 합니다.")
+        if (cfg.cli_progress_style or "").strip().lower() not in {"braille", "ascii"}:
+            errors.append("CLI_PROGRESS_STYLE 는 braille 또는 ascii 중 하나여야 합니다.")
 
         # BigQuery 기본값/검증
         if cfg.enable_bigquery:

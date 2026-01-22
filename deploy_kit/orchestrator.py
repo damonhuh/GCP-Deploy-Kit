@@ -31,6 +31,7 @@ ALL_SECTIONS: List[str] = [
     "gcs",
     "secrets",
     "frontend",
+    "frontend_cloud_run",
     "firebase",
 ]
 
@@ -40,6 +41,8 @@ def _section_enabled(name: str, cfg: DeployConfig) -> bool:
         return cfg.deploy_backend
     if name == "frontend":
         return cfg.deploy_frontend
+    if name == "frontend_cloud_run":
+        return cfg.deploy_frontend_cloud_run
     if name == "etl":
         return cfg.deploy_etl_job
     if name == "bq":
@@ -89,6 +92,7 @@ def plan_all(cfg: DeployConfig) -> str:
     lines.append(f"- enable_secret_manager: {cfg.enable_secret_manager}")
     lines.append(f"- deploy_backend: {cfg.deploy_backend}")
     lines.append(f"- deploy_frontend: {cfg.deploy_frontend}")
+    lines.append(f"- deploy_frontend_cloud_run: {cfg.deploy_frontend_cloud_run}")
     lines.append(f"- deploy_etl_job: {cfg.deploy_etl_job}")
     lines.append(f"- configure_secrets: {cfg.configure_secrets}")
     lines.append("")
@@ -207,6 +211,29 @@ def apply_all(cfg: DeployConfig, only_sections: Optional[Iterable[str]] = None) 
                             f"프론트엔드 빌드가 실패했습니다. "
                             "FRONTEND_BUILD_COMMAND 및 빌드 로그를 확인하세요."
                         ) from e
+            elif name == "frontend_cloud_run":
+                # 프론트엔드 Cloud Run 배포:
+                # - FRONTEND_SOURCE_DIR 의 Dockerfile 컨텍스트를 이미지로 빌드/푸시
+                # - Cloud Run 서비스로 배포
+                gcp_project.ensure_project_and_apis(cfg)
+                gcp_artifact_registry.ensure_repository(cfg)
+
+                if not cfg.frontend_source_dir:
+                    raise RuntimeError(
+                        "FRONTEND_SOURCE_DIR 이 설정되지 않아 frontend_cloud_run 섹션을 실행할 수 없습니다."
+                    )
+                if not cfg.frontend_image_name:
+                    raise RuntimeError(
+                        "FRONTEND_IMAGE_NAME 이 설정되지 않아 frontend_cloud_run 섹션을 실행할 수 없습니다."
+                    )
+
+                image_url = gcp_artifact_registry.build_and_push_image(
+                    cfg,
+                    service="frontend",
+                    image_name=cfg.frontend_image_name,
+                    context_dir=cfg.frontend_source_dir,
+                )
+                gcp_cloud_run.deploy_frontend_service(cfg, image_url)
             elif name == "firebase":
                 firebase_hosting.deploy_frontend(cfg)
         except Exception:  # noqa: BLE001
@@ -345,6 +372,55 @@ def check_all(cfg: DeployConfig, base_dir: str = ".", show_all: bool = False) ->
                 if show_all:
                     lines.append(f"- {msg}")
                 warnings.append(msg)
+
+        lines.append("")
+
+    # 2.6) Frontend (Cloud Run) build context (Dockerfile 등)
+    if getattr(cfg, "deploy_frontend_cloud_run", False):
+        lines.append("## Frontend (Cloud Run) build context")
+
+        if not cfg.frontend_source_dir:
+            msg = "Frontend(Cloud Run): FRONTEND_SOURCE_DIR 이 설정되지 않았습니다."
+            if show_all:
+                lines.append(f"- {msg}")
+            critical.append(msg)
+        else:
+            frontend_dir = os.path.abspath(cfg.frontend_source_dir)
+            dockerfile_path = os.path.join(frontend_dir, "Dockerfile")
+            dockerignore_path = os.path.join(frontend_dir, ".dockerignore")
+            node_modules_path = os.path.join(frontend_dir, "node_modules")
+
+            if not os.path.isdir(frontend_dir):
+                msg = f"Frontend(Cloud Run): FRONTEND_SOURCE_DIR 디렉토리를 찾을 수 없습니다 ({frontend_dir})"
+                if show_all:
+                    lines.append(f"- {msg}")
+                critical.append(msg)
+            else:
+                if not os.path.isfile(dockerfile_path):
+                    msg = f"Frontend(Cloud Run): Dockerfile 이 없습니다 ({dockerfile_path})"
+                    if show_all:
+                        lines.append(f"- {msg}")
+                    critical.append(msg)
+                else:
+                    ok = f"Frontend(Cloud Run): Dockerfile 확인됨 ({dockerfile_path})"
+                    if show_all:
+                        lines.append(f"- {ok}")
+
+                if not os.path.isfile(dockerignore_path):
+                    msg = f"Frontend(Cloud Run): .dockerignore 가 없습니다 (업로드/빌드 시간이 길어질 수 있음) ({dockerignore_path})"
+                    if show_all:
+                        lines.append(f"- {msg}")
+                    warnings.append(msg)
+                else:
+                    ok = f"Frontend(Cloud Run): .dockerignore 확인됨 ({dockerignore_path})"
+                    if show_all:
+                        lines.append(f"- {ok}")
+
+                if os.path.isdir(node_modules_path):
+                    msg = f"Frontend(Cloud Run): node_modules/ 가 빌드 컨텍스트에 존재합니다 (Cloud Build 업로드/빌드가 매우 느려질 수 있음) ({node_modules_path})"
+                    if show_all:
+                        lines.append(f"- {msg}")
+                    warnings.append(msg)
 
         lines.append("")
 

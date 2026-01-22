@@ -111,6 +111,9 @@ def build_and_push_image(cfg: DeployConfig, service: str, image_name: str, conte
         package = cfg.backend_image_package
     elif service == "etl" and cfg.etl_image_package:
         package = cfg.etl_image_package
+    elif service == "frontend" and getattr(cfg, "frontend_image_package", None):
+        # DeployConfig 에 frontend_image_package 가 없던 구버전과의 호환을 위해 getattr 사용
+        package = str(getattr(cfg, "frontend_image_package"))
     else:
         package = service
 
